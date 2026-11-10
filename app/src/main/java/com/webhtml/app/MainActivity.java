@@ -229,22 +229,28 @@ public class MainActivity extends AppCompatActivity {
         webView.addJavascriptInterface(downloadHelper, "AndroidBridge");
         webView.addJavascriptInterface(new ConfigSaverInterface(this), "AndroidBridgeSaver");
 
-        getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
-            @Override
-            public void handleOnBackPressed() {
-                if (menuControler != null && menuControler.isMenuVisible()) {
-                    menuControler.toggleMenu();
-                    return;
-                }
+    getOnBackPressedDispatcher().addCallback(this, new androidx.activity.OnBackPressedCallback(true) {
+    @Override
+    public void handleOnBackPressed() {
+        if (menuControler != null && menuControler.isMenuVisible()) {
+            menuControler.toggleMenu();
+            return;
+        }
 
-                if (webView.canGoBack()) {
-                    webView.goBack();
-                } else {
-                    setEnabled(false);
-                    getOnBackPressedDispatcher().onBackPressed();
-                }
-            }
-        });
+        // Proveravamo stvarnu poziciju u istoriji preko indeksa da sprečimo vrtenje u krug
+        android.webkit.WebBackForwardList history = webView.copyBackForwardList();
+        int currentIndex = history.getCurrentIndex();
+
+        // Ako smo na početku (indeks 0) ili nemamo gde nazad:
+        if (currentIndex <= 0 || !webView.canGoBack()) {
+            setEnabled(false);
+            finish(); // Ovo postavlja isFinishing() na true i gasi aplikaciju bez servisa i notifikacije!
+        } else {
+            // Ako ima gde nazad, vrati stranicu
+            webView.goBack();
+        }
+    }
+});
 
         webView.setDownloadListener((url, userAgent, contentDisposition, mimetype, contentLength) -> {
             String rawSuggestedName = android.webkit.URLUtil.guessFileName(url, contentDisposition, mimetype);
@@ -781,20 +787,21 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     protected void onStop() {
-        super.onStop();
-        
-        // Ako je background uključen, palimo servis čim aplikacija ode u pozadinu (Home, Recents, Back)
-        if (background) {
-            try {
-                Intent serviceIntent = new Intent(this, MediaService.class);
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                    startForegroundService(serviceIntent);
-                } else {
-                    startService(serviceIntent);
-                }
-            } catch (Exception ignored) {}
-        }
+    super.onStop();
+    
+    // Servis se pali SAMO ako je background uključen 
+    // I ako se aktivnost NE gasi (zato što je pritisnut Home ili Recents, a NE Back!)
+    if (background && !isFinishing()) {
+        try {
+            Intent serviceIntent = new Intent(this, MediaService.class);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(serviceIntent);
+            } else {
+                startService(serviceIntent);
+            }
+        } catch (Exception ignored) {}
     }
+}
 
     @Override
     protected void onPause() {
@@ -822,10 +829,6 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    protected void onUserLeaveHint() {
-        super.onUserLeaveHint();
-    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
